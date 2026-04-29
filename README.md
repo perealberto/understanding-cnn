@@ -1,6 +1,6 @@
-# CNN Performance Research
+# Understanding Convolutional Neural Networks
 
-This repository contains research and experiments related to the performance of Convolutional Neural Networks (CNNs). The goal is to analyze the efficiency and effectiveness of CNN architectures for classification tasks.
+This repository contains research and experiments related to the understanding and performance of Convolutional Neural Networks (CNNs). The goal is to analyze the efficiency and effectiveness of CNN architectures for classification tasks.
 
 ## Setup
 
