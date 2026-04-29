@@ -43,28 +43,36 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 simple_cnn = models.SimpleCNN()
 checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
 simple_cnn.load_state_dict(checkpoint)
-
 simple_cnn = simple_cnn.to(device).eval()
+
 batch, _ = next(iter(test_dataloader))
 img = batch[6].unsqueeze(0).to(device)
 
-gc = grad.GradCAM(simple_cnn, device=device)
-cam = gc.generate(img)
-superimposed = grad.compute_superimposed_image(img, heatmap)
+with grad.GradCAM(simple_cnn, device=device) as gc:
+    cam = gc.generate(img)
 
-img = img.squeeze(0).cpu().detach().numpy()[0]
+superimposed = grad.GradCAM.overlay_on_image(img, cam)
+
+img_np = img.squeeze(0).cpu().detach().numpy()[0]          # (H, W)
+cam_np = cam.squeeze().cpu().detach().numpy()               # (H, W)
+superimposed_np = superimposed.squeeze(0).cpu().detach().numpy()  # (3, H, W)
+superimposed_np = superimposed_np.transpose(1, 2, 0)        # (H, W, 3)
 
 fig, axs = plt.subplots(1, 3, figsize=(12, 5))
 
-axs[0].imshow(img, cmap="gray")
+axs[0].imshow(img_np, cmap="gray")
+axs[0].set_title("Input")
+axs[0].axis("off")
 
-im1 = axs[1].imshow(heatmap, cmap="jet")
-im2 = axs[2].imshow(superimposed)
-
+im1 = axs[1].imshow(cam_np, cmap="jet")
+axs[1].set_title("Grad-CAM")
+axs[1].axis("off")
 cbar1 = fig.colorbar(im1, ax=axs[1], orientation="horizontal", fraction=0.05, pad=0.1)
 cbar1.ax.tick_params(labelsize=8)
 
-cbar2 = fig.colorbar(im2, ax=axs[2], orientation="horizontal", fraction=0.05, pad=0.1)
-cbar2.ax.tick_params(labelsize=8)
+axs[2].imshow(superimposed_np)
+axs[2].set_title("Superimposed")
+axs[2].axis("off")
 
+plt.tight_layout()
 plt.show()

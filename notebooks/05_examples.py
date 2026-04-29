@@ -464,11 +464,32 @@ def visualize_mnist_forward(
 
 
 # +
+simple_CNN = models.SimpleCNN()
+if not (models_path / "simple_CNN.ckpt").exists():
+    trainer = models.Trainer(
+        model=simple_CNN,
+        optimizer=optim.Adam(simple_CNN.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="simple_CNN",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
+    simple_CNN.load_state_dict(checkpoint)
+    simple_CNN = simple_CNN.to(device).eval()
+
 batch, _ = next(iter(test_dataloader))
-x = batch[6].unsqueeze(0).to(device).requires_grad_(True)
+x = batch[0].unsqueeze(0).to(device).requires_grad_(True)
+
+sigma = 0.15
+noise = torch.randn_like(x) * sigma
+noisy = (x + noise.to(device)).clamp(0, 1)
 
 captures = visualize_mnist_forward(
-    model=solidCNN, x=x, save_path=images_path / "solidCNN_forward.png", cols=8, dpi=250
+    model=simple_CNN, x=noisy, save_path=images_path / "simpleCNN_forward.png", cols=8, dpi=250
 )
 # -
 tag, feats = captures[0]
@@ -620,3 +641,230 @@ plt.savefig(figs_path / "pool_filter.png")
 plt.show()
 print(after_sobel_x.shape)
 print(pool.shape)
+
+# +
+import matplotlib.animation as animation
+from IPython.display import Image as IPImage
+
+# ─── GIF: efecto del stride ───
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+N, K = 6, 2
+entrada = np.random.randint(0, 4, (N, N))
+
+configs_stride = [
+    (1, axes[0], 'Stride = 1'),
+    (2, axes[1], 'Stride = 2'),
+]
+
+# Calcular todas las posiciones para cada stride
+def get_posiciones(N, K, S):
+    pos = []
+    for i in range(0, N - K + 1, S):
+        for j in range(0, N - K + 1, S):
+            pos.append((i, j))
+    return pos
+
+pos_s1 = get_posiciones(N, K, 1)
+pos_s2 = get_posiciones(N, K, 2)
+n_frames = max(len(pos_s1), len(pos_s2))
+
+def dibujar_cuadricula(ax, entrada, titulo):
+    """Dibuja la cuadrícula base."""
+    ax.clear()
+    ax.set_xlim(-0.5, N + 0.5)
+    ax.set_ylim(-0.5, N + 0.5)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    ax.set_title(titulo, fontweight='bold', fontsize=11)
+
+    # Fondo de celdas
+    for i in range(N):
+        for j in range(N):
+            ax.fill_between([j, j+1], [i, i], [i+1, i+1],
+                            color='#dce8f5', alpha=0.5)
+            ax.text(j + 0.5, i + 0.5, str(int(entrada[N-1-i, j])),
+                    ha='center', va='center', fontsize=11, color='#333')
+
+    # Cuadrícula
+    for i in range(N + 1):
+        ax.axhline(i, color='#aaa', lw=0.8)
+        ax.axvline(i, color='#aaa', lw=0.8)
+
+def dibujar_kernel(ax, row, col, K, N, color='#e74c3c', resultado=None):
+    """Dibuja el kernel en la posición (row, col)."""
+    # Convertir fila (coordenadas matriz) a coordenadas plot
+    plot_row = N - row - K
+    rect = plt.Rectangle((col, plot_row), K, K,
+                          linewidth=2.5,
+                          edgecolor=color,
+                          facecolor=color,
+                          alpha=0.25, zorder=4)
+    ax.add_patch(rect)
+    if resultado is not None:
+        ax.text(col + K/2, plot_row + K/2,
+                f'={resultado}', ha='center', va='center',
+                fontsize=10, fontweight='bold', color=color, zorder=5)
+
+def update(frame):
+    for ax, (S, _, titulo), posiciones in zip(
+        axes,
+        configs_stride,
+        [pos_s1, pos_s2]
+    ):
+        dibujar_cuadricula(ax, entrada, titulo)
+
+        # Posiciones ya visitadas (en gris)
+        for k in range(min(frame, len(posiciones) - 1)):
+            row, col = posiciones[k]
+            plot_row = N - row - K
+            rect = plt.Rectangle((col, plot_row), K, K,
+                                  linewidth=1.5,
+                                  edgecolor='#aaa',
+                                  facecolor='#aaa',
+                                  alpha=0.15, zorder=3)
+            ax.add_patch(rect)
+
+        # Posición actual
+        if frame < len(posiciones):
+            row, col = posiciones[frame]
+            region = entrada[row:row+K, col:col+K]
+            resultado = int(region.sum())
+            dibujar_kernel(ax, row, col, K, N,
+                          color='#e74c3c', resultado=resultado)
+
+            # Contador
+            ax.text(0.02, 0.02,
+                    f'Paso {frame+1}/{len(posiciones)}',
+                    transform=ax.transAxes, fontsize=9,
+                    color='#555', style='italic')
+
+        # Mapa de salida (esquina inferior derecha)
+        out_size = len(posiciones)
+        out_dim  = int(np.sqrt(out_size))
+        ax.text(N + 0.1, -0.3,
+                f'Salida: {out_dim}×{out_dim}',
+                fontsize=9, color='#27ae60',
+                fontweight='bold')
+
+ani_stride = animation.FuncAnimation(
+    fig, update,
+    frames=n_frames,
+    interval=2000,
+    repeat=True
+)
+
+
+plt.tight_layout()
+ani_stride.save('images/course/stride.gif', writer='pillow', fps=3)
+plt.close()
+print("✅ GIF guardado como stride.gif")
+IPImage('stride.gif')
+
+# +
+# ─── GIF: efecto del padding ───
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+N, K = 6, 3
+
+configs_padding = [
+    (0, axes[0], 'Sin padding (valid)\nSalida: 4×4'),
+    (1, axes[1], 'Padding = 1 (same)\nSalida: 6×6'),
+]
+
+pos_p0 = get_posiciones(N,     K, 1)
+pos_p1 = get_posiciones(N + 2, K, 1)
+n_frames_p = max(len(pos_p0), len(pos_p1))
+
+def dibujar_cuadricula_padding(ax, N_grid, P, titulo):
+    """Dibuja la cuadrícula con padding."""
+    ax.clear()
+    total = N_grid + 2 * P
+    ax.set_xlim(-0.5, total + 0.5)
+    ax.set_ylim(-0.5, total + 0.5)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    ax.set_title(titulo, fontweight='bold', fontsize=10)
+
+    for i in range(total):
+        for j in range(total):
+            es_padding = (i < P or i >= total - P or
+                          j < P or j >= total - P)
+            color = '#d5eaf7' if es_padding else '#dce8f5'
+            ax.fill_between([j, j+1], [i, i], [i+1, i+1],
+                            color=color, alpha=0.7)
+            if not es_padding:
+                val = entrada[total - 1 - i - P, j - P] if P > 0 \
+                      else entrada[total - 1 - i, j]
+                ax.text(j + 0.5, i + 0.5, str(int(val)),
+                        ha='center', va='center',
+                        fontsize=10, color='#333')
+            else:
+                ax.text(j + 0.5, i + 0.5, '0',
+                        ha='center', va='center',
+                        fontsize=9, color='#aaa')
+
+    for i in range(total + 1):
+        ax.axhline(i, color='#aaa', lw=0.8)
+        ax.axvline(i, color='#aaa', lw=0.8)
+
+    if P > 0:
+        ax.text(total/2, -0.35,
+                f'Zona de padding (ceros)',
+                ha='center', fontsize=8,
+                color='#4a90d9', style='italic')
+
+def update_padding(frame):
+    for ax, (P, _, titulo), posiciones, N_grid in zip(
+        axes,
+        configs_padding,
+        [pos_p0, pos_p1],
+        [N, N]
+    ):
+        dibujar_cuadricula_padding(ax, N_grid, P, titulo)
+        total = N_grid + 2 * P
+
+        # Posiciones visitadas
+        for k in range(min(frame, len(posiciones) - 1)):
+            row, col = posiciones[k]
+            plot_row = total - row - K
+            rect = plt.Rectangle((col, plot_row), K, K,
+                                  linewidth=1.5,
+                                  edgecolor='#aaa',
+                                  facecolor='#aaa',
+                                  alpha=0.15, zorder=3)
+            ax.add_patch(rect)
+
+        # Posición actual
+        if frame < len(posiciones):
+            row, col = posiciones[frame]
+            plot_row = total - row - K
+            rect = plt.Rectangle((col, plot_row), K, K,
+                                  linewidth=2.5,
+                                  edgecolor='#e74c3c',
+                                  facecolor='#e74c3c',
+                                  alpha=0.25, zorder=4)
+            ax.add_patch(rect)
+            ax.text(col + K/2, plot_row + K/2,
+                    f'pos {frame+1}', ha='center', va='center',
+                    fontsize=9, fontweight='bold',
+                    color='#e74c3c', zorder=5)
+            ax.text(0.02, 0.02,
+                    f'Paso {frame+1}/{len(posiciones)}',
+                    transform=ax.transAxes,
+                    fontsize=9, color='#555', style='italic')
+
+ani_padding = animation.FuncAnimation(
+    fig, update_padding,
+    frames=n_frames_p,
+    interval=2000,
+    repeat=True
+)
+ani_padding.save('images/course/padding.gif', writer='pillow', fps=5)
+plt.close()
+IPImage('padding.gif')
+# -
+
+

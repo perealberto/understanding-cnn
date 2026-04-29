@@ -20,18 +20,17 @@ from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..")))
 
-from collections import Counter, defaultdict
+from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets
 from torchvision.transforms import ToTensor
 
-from src import metrics, models
+from src import grad, metrics, models
 
 datasets_path: Path = Path.cwd() / "data"
 if not datasets_path.exists():
@@ -39,6 +38,12 @@ if not datasets_path.exists():
 models_path: Path = Path.cwd() / "models"
 if not models_path.exists():
     models_path.mkdir()
+images_path: Path = Path.cwd() / "images"
+if not images_path.exists():
+    images_path.mkdir()
+
+device: torch.device = models.get_device()
+print(f"Using {device} device")
 
 device: torch.device = models.get_device()
 print(f"Using {device} device")
@@ -60,193 +65,68 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 # %% [markdown]
 # ## Neural Network
 
-
 # %%
-class SimpleNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28 * 28, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 10),
-        )
-
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
-
-
-simple_NN = SimpleNN()
-trainer = models.Trainer(
-    model=simple_NN,
-    optimizer=optim.Adam(simple_NN.parameters(), lr=1e-3),
-    loss_fn=nn.CrossEntropyLoss(),
-    train_loader=train_dataloader,
-    val_loader=val_dataloader,
-    device=device,
-    save_name="simple_NN",
-)
-history = trainer.fit()
+simple_NN = models.SimpleNN()
+if not (models_path / "simple_NN.ckpt").exists():
+    trainer = models.Trainer(
+        model=simple_NN,
+        optimizer=optim.Adam(simple_NN.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="simple_NN",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "simple_NN.ckpt", map_location=device)
+    simple_NN.load_state_dict(checkpoint)
+    simple_NN = simple_NN.to(device).eval()
 
 
 # %% [markdown]
 # ## Convolutional NN
 
-
 # %%
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3)
-        self.conv2 = nn.Conv2d(32, 64, 3)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = torch.flatten(x, 1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-simple_CNN = SimpleCNN()
-trainer = models.Trainer(
-    model=simple_CNN,
-    optimizer=optim.Adam(simple_CNN.parameters(), lr=1e-3),
-    loss_fn=nn.CrossEntropyLoss(),
-    train_loader=train_dataloader,
-    val_loader=val_dataloader,
-    device=device,
-    save_name="simple_CNN",
-)
-history = trainer.fit()
+simple_CNN = models.SimpleCNN()
+if not (models_path / "simple_CNN.ckpt").exists():
+    trainer = models.Trainer(
+        model=simple_CNN,
+        optimizer=optim.Adam(simple_CNN.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="simple_CNN",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
+    simple_CNN.load_state_dict(checkpoint)
+    simple_CNN = simple_CNN.to(device).eval()
 
 
 # %% [markdown]
 # ## Saliency Map
 
-
 # %%
-def compute_saliency(x: torch.Tensor, y: torch.Tensor, model: nn.Module) -> np.ndarray:
-    """
-    Compute saliency maps for a batch of images.
-    """
-    assert x.ndim == 4, "Input tensor must be 4-dimensional (B, C, H, W)"
-    assert x.shape[0] == y.shape[0], (
-        "Input and target tensors must have the same batch size"
-    )
-    device = next(model.parameters()).device
-    model.eval()
-
-    x = x.to(device).clone().detach().requires_grad_(True)
-    y = y.to(device)
-
-    # Forward pass and select target classes
-    logits = model(x)
-    target = logits.argmax(dim=1) if y is None else y
-    score = logits[torch.arange(logits.shape[0]), target].sum()
-
-    # Backprop to get gradients
-    model.zero_grad(set_to_none=True)
-    if x.grad is not None:
-        x.grad.zero_()
-    score.backward()
-    grad = x.grad.detach().abs()  # type: ignore
-
-    # Normalize and convert to numpy
-    saliency = grad.max(dim=1).values.cpu().numpy()
-    saliency = (saliency - saliency.min(axis=(1, 2), keepdims=True)) / (
-        saliency.max(axis=(1, 2), keepdims=True)
-        - saliency.min(axis=(1, 2), keepdims=True)
-        + 1e-12
-    )
-
-    return saliency
-
-
-def show_image_and_saliency(
-    img: torch.Tensor,
-    saliency: np.ndarray,
-    title: str = "",
-    savepath: str | Path | None = None,
-):
-    """
-    Displays the image and saliency side by side and overlayed.
-    """
-    img = img.clone().cpu()
-    if img.shape[0] == 1:
-        img_vis = img[0].cpu().numpy()
-        cmap_img = "gray"
-    else:
-        img_vis = img.permute(1, 2, 0).cpu().numpy()
-        img_vis = (img_vis - img_vis.min()) / (img_vis.max() - img_vis.min() + 1e-12)
-        cmap_img = None
-
-    sal = saliency.squeeze(0) if saliency.ndim == 3 else saliency
-
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    ax[0].imshow(img_vis, cmap=cmap_img)
-    ax[0].axis("off")
-    ax[0].set_title("Input Image")
-
-    im1 = ax[1].imshow(sal, cmap="jet")
-    ax[1].axis("off")
-    ax[1].set_title("Saliency Map")
-    cbar1 = fig.colorbar(im1, ax=ax[1], fraction=0.046, pad=0.04)
-    cbar1.set_label("Saliency Intensity")
-
-    ax[2].imshow(img_vis, cmap=cmap_img)
-    ax[2].imshow(sal, cmap="jet", alpha=0.5)
-    ax[2].axis("off")
-    ax[2].set_title("Overlay")
-
-    if title:
-        fig.suptitle(title)
-    if savepath:
-        plt.savefig(savepath)
-    plt.show()
-
-
-# %%
-device = models.get_device()
-simple_nn = simple_NN.to(device).eval()
-
 idx = 2
 img, label = test_dataset[idx]
 x = img.unsqueeze(0)
 y = torch.tensor([label])
 
-sal = compute_saliency(x, y, simple_NN)
-show_image_and_saliency(img, sal, title=f"NN - Saliency (label={label})")
+sal = grad.compute_saliency(x, y, simple_NN)
+grad.show_image_and_saliency(img, sal, title=f"NN - Saliency (label={label})")
 
 # %%
-device = models.get_device()
-simple_cnn = simple_CNN.to(device).eval()
+sal = grad.compute_saliency(x, y, simple_CNN)
+grad.show_image_and_saliency(img, sal, title=f"CNN - Saliency (label={label})")
 
-idx = 2
-img, label = test_dataset[idx]
-x = img.unsqueeze(0)
-y = torch.tensor([label])
-
-sal = compute_saliency(x, y, simple_CNN)
-show_image_and_saliency(img, sal, title=f"CNN - Saliency (label={label})")
 
 # %% [markdown]
 # ## Average Saliency Map
 
 # %%
-
 reps = Counter([x[1] for x in test_dataset])
 labels, counts = reps.keys(), reps.values()
 
@@ -257,85 +137,19 @@ ax.set_xticks(range(10))
 ax.bar_label(bars)
 plt.show()
 
+# %%
+avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, simple_NN, device)
+grad.show_avg_saliency_by_class(avg_saliency_map, None, "AVG Saliency Map by Class - Simple NN")
 
 # %%
-def compute_avg_saliency_by_class(
-    dataloader: DataLoader, model: nn.Module, device: torch.device
-) -> dict[int, np.ndarray]:
-    """
-    Compute average saliency maps for each class in the dataset.
-    """
-    saliencies_by_class = defaultdict(list)
+avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, simple_CNN, device)
+grad.show_avg_saliency_by_class(avg_saliency_map, None, "AVG Saliency Map by Class - Simple CNN")
 
-    for X, y in dataloader:
-        X = X.to(device)
-        y = y.to(device)
-        saliency_batch = compute_saliency(X, y, model)
-        for i in range(X.shape[0]):
-            label = y[i].item()
-            saliencies_by_class[label].append(saliency_batch[i])
-
-    avg_saliency_by_class = {
-        label: np.mean(saliencies_by_class[label], axis=0)
-        for label in sorted(saliencies_by_class.keys())
-    }
-    return avg_saliency_by_class
-
-
-def show_avg_saliency_by_class(
-    avg_saliency_by_class: dict[int, np.ndarray],
-    class_names: dict[int, str] | None = None,
-    title: str = "",
-    savepath: str | Path | None = None,
-):
-    """
-    Display average saliency maps for each class.
-    """
-    import matplotlib.pyplot as plt
-
-    n_classes = len(avg_saliency_by_class)
-    n_cols = min(5, n_classes)
-    n_rows = (n_classes + n_cols - 1) // n_cols
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
-    axes = axes.flatten()
-
-    for i, (label, saliency) in enumerate(avg_saliency_by_class.items()):
-        ax = axes[i]
-        ax.imshow(saliency, cmap="jet")
-        ax.axis("off")
-        ax_title = f"Class: {label}"
-        if class_names and label in class_names:
-            ax_title += f": {class_names[label]}"
-        ax.set_title(ax_title)
-
-    for j in range(i + 1, len(axes)):
-        axes[j].axis("off")
-
-    if title:
-        fig.suptitle(title)
-    if savepath:
-        plt.savefig(savepath)
-    plt.show()
-
-
-# %%
-avg_saliency_map = compute_avg_saliency_by_class(test_dataloader, simple_NN, device)
-show_avg_saliency_by_class(
-    avg_saliency_map, None, "AVG Saliency Map by Class - Simple NN"
-)
-
-# %%
-avg_saliency_map = compute_avg_saliency_by_class(test_dataloader, simple_CNN, device)
-show_avg_saliency_by_class(
-    avg_saliency_map, None, "AVG Saliency Map by Class - Simple CNN"
-)
 
 # %% [markdown]
 # ## Top 3 most confusing
 
 # %%
-
 y_true_NN, y_pred_NN, *_ = metrics._collect_outputs(test_dataloader, simple_NN, device)
 metrics.print_top_k_confusions("Simple NN top 3 confusions", y_true_NN, y_pred_NN)
 
@@ -344,5 +158,454 @@ y_true_CNN, y_pred_CNN, *_ = metrics._collect_outputs(
     test_dataloader, simple_CNN, device
 )
 metrics.print_top_k_confusions("Simple CNN top 3 confusions", y_true_CNN, y_pred_CNN)
+
+
+# %% [markdown]
+# ## Comparación 4 modelos
+
+# %%
+logistic_reg = models.LogisticRegressionMNIST()
+if not (models_path / "logistic_regression.ckpt").exists():
+    trainer = models.Trainer(
+        model=logistic_reg,
+        optimizer=optim.Adam(logistic_reg.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="logistic_regression",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "logistic_regression.ckpt", map_location=device)
+    logistic_reg.load_state_dict(checkpoint)
+    logistic_reg = logistic_reg.to(device).eval()
+
+mlp512 = models.MLP512x512()
+if not (models_path / "mlp512.ckpt").exists():
+    trainer = models.Trainer(
+        model=mlp512,
+        optimizer=optim.Adam(mlp512.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="mlp512",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "mlp512.ckpt", map_location=device)
+    mlp512.load_state_dict(checkpoint)
+    mlp512 = mlp512.to(device).eval()
+
+tiny_cnn = models.TinyCNNBad()
+if not (models_path / "tinyCNN.ckpt").exists():
+    trainer = models.Trainer(
+        model=tiny_cnn,
+        optimizer=optim.Adam(tiny_cnn.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="tinyCNN",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "tinyCNN.ckpt", map_location=device)
+    tiny_cnn.load_state_dict(checkpoint)
+    tiny_cnn = tiny_cnn.to(device).eval()
+
+solid_cnn = models.SmallCNNSolid()
+if not (models_path / "solidCNN.ckpt").exists():
+    trainer = models.Trainer(
+        model=solid_cnn,
+        optimizer=optim.Adam(solid_cnn.parameters(), lr=1e-3),
+        loss_fn=nn.CrossEntropyLoss(),
+        train_loader=train_dataloader,
+        val_loader=val_dataloader,
+        device=device,
+        save_name="solidCNN",
+    )
+    trainer.fit()
+else:
+    checkpoint = torch.load(models_path / "solidCNN.ckpt", map_location=device)
+    solid_cnn.load_state_dict(checkpoint)
+    solid_cnn = solid_cnn.to(device).eval()
+
+# %%
+all_models = {
+    "LogisticReg": logistic_reg,
+    "MLP512": mlp512,
+    "TinyCNN": tiny_cnn,
+    "SolidCNN": solid_cnn,
+}
+
+idx = 2
+img, label = test_dataset[idx]
+x = img.unsqueeze(0)
+y = torch.tensor([label])
+
+n_models = len(all_models)
+fig, axes = plt.subplots(n_models, 3, figsize=(12, 4 * n_models))
+fig.suptitle(f"Comparación Saliency Map — label={label}", fontsize=14)
+
+for row, (name, model) in enumerate(all_models.items()):
+    sal = grad.compute_saliency(x, y, model)
+    sal_2d = sal.squeeze()
+    img_vis = img[0].numpy()
+
+    axes[row, 0].imshow(img_vis, cmap="gray")
+    axes[row, 0].axis("off")
+    axes[row, 0].set_title(f"{name}\nInput")
+
+    im = axes[row, 1].imshow(sal_2d, cmap="jet")
+    axes[row, 1].axis("off")
+    axes[row, 1].set_title("Saliency Map")
+    fig.colorbar(im, ax=axes[row, 1], fraction=0.046, pad=0.04)
+
+    axes[row, 2].imshow(img_vis, cmap="gray")
+    axes[row, 2].imshow(sal_2d, cmap="jet", alpha=0.5)
+    axes[row, 2].axis("off")
+    axes[row, 2].set_title("Overlay")
+
+plt.tight_layout()
+plt.show()
+
+
+# %% [markdown]
+# ## Saliency en muestras mal clasificadas
+
+# %%
+def get_misclassified_samples(dataset, model, device, n=5):
+    """Returns n (img, true_label, pred_label) tuples where the model was wrong."""
+    model.eval()
+    results = []
+    for img, label in dataset:
+        if len(results) >= n:
+            break
+        x = img.unsqueeze(0).to(device)
+        with torch.no_grad():
+            pred = model(x).argmax(dim=1).item()
+        if pred != label:
+            results.append((img, label, pred))
+    return results
+
+
+# %%
+for model_name, model in [("Simple NN", simple_NN), ("Simple CNN", simple_CNN)]:
+    misclassified = get_misclassified_samples(test_dataset, model, device, n=5)
+
+    n = len(misclassified)
+    fig, axes = plt.subplots(n, 3, figsize=(12, 4 * n))
+    fig.suptitle(f"Saliency en muestras mal clasificadas — {model_name}", fontsize=14)
+
+    for row, (img, true_label, pred_label) in enumerate(misclassified):
+        x = img.unsqueeze(0)
+        y = torch.tensor([true_label])
+        sal = grad.compute_saliency(x, y, model)
+        sal_2d = sal.squeeze()
+        img_vis = img[0].numpy()
+
+        axes[row, 0].imshow(img_vis, cmap="gray")
+        axes[row, 0].axis("off")
+        axes[row, 0].set_title(f"True: {true_label}  |  Pred: {pred_label}")
+
+        im = axes[row, 1].imshow(sal_2d, cmap="jet")
+        axes[row, 1].axis("off")
+        axes[row, 1].set_title("Saliency (clase real)")
+        fig.colorbar(im, ax=axes[row, 1], fraction=0.046, pad=0.04)
+
+        axes[row, 2].imshow(img_vis, cmap="gray")
+        axes[row, 2].imshow(sal_2d, cmap="jet", alpha=0.5)
+        axes[row, 2].axis("off")
+        axes[row, 2].set_title("Overlay")
+
+    plt.tight_layout()
+    plt.show()
+
+
+# %% [markdown]
+# ## Saliency map de los pares de clases más confundidos
+
+# %%
+def get_confused_pairs(y_true, y_pred, k: int = 3):
+    """Devuelve los k pares (clase_real, clase_predicha) más frecuentes en errores."""
+    from collections import Counter
+
+    errors = [(int(t), int(p)) for t, p in zip(y_true, y_pred) if t != p]
+    return [(pair, cnt) for pair, cnt in Counter(errors).most_common(k)]
+
+
+def get_examples_for_pair(dataset, model, device, true_cls: int, pred_cls: int, n: int = 4):
+    """Devuelve n imágenes donde el modelo predice pred_cls para ejemplos de true_cls."""
+    model.eval()
+    results = []
+    for img, label in dataset:
+        if len(results) >= n:
+            break
+        if label != true_cls:
+            continue
+        x = img.unsqueeze(0).to(device)
+        with torch.no_grad():
+            pred = model(x).argmax(dim=1).item()
+        if pred == pred_cls:
+            results.append(img)
+    return results
+
+
+# %%
+top_pairs = get_confused_pairs(y_true_CNN, y_pred_CNN, k=3)
+
+n_examples = 4
+for (true_cls, pred_cls), count in top_pairs:
+    examples = get_examples_for_pair(
+        test_dataset, simple_CNN, device, true_cls, pred_cls, n=n_examples
+    )
+    if not examples:
+        continue
+
+    n = len(examples)
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
+    if n == 1:
+        axes = [axes]
+    fig.suptitle(
+        f"Real: {true_cls}  →  Pred: {pred_cls}   ({count} errores en test)",
+        fontsize=13,
+        y=1.04,
+    )
+
+    for col, img in enumerate(examples):
+        x = img.unsqueeze(0)
+        y = torch.tensor([true_cls])
+        sal = grad.compute_saliency(x, y, simple_CNN).squeeze()
+        img_vis = img[0].numpy()
+
+        axes[col].imshow(img_vis, cmap="gray")
+        axes[col].imshow(sal, cmap="jet", alpha=0.5)
+        axes[col].axis("off")
+        axes[col].set_title(f"Ejemplo {col + 1}")
+
+    plt.tight_layout()
+    plt.show()
+
+
+# %% [markdown]
+# ## Fragilidad visual ante ruido gaussiano
+
+# %%
+def saliency_under_noise(
+    img: torch.Tensor,
+    label: int,
+    model: torch.nn.Module,
+    sigma: float,
+    device: torch.device,
+    seed: int = 0,
+):
+    """Devuelve (imagen_ruidosa, saliency_map, predicción, confianza)."""
+    torch.manual_seed(seed)
+    noise = torch.randn_like(img) * sigma
+    noisy = (img + noise).clamp(0, 1)
+    x = noisy.unsqueeze(0)
+    y = torch.tensor([label])
+
+    with torch.no_grad():
+        logits = model(x.to(device))
+        probs = torch.softmax(logits, dim=1)
+        pred = int(logits.argmax(dim=1).item())
+        conf = float(probs[0, pred].item())
+
+    sal = grad.compute_saliency(x, y, model).squeeze()
+    return noisy, sal, pred, conf
+
+
+# %%
+sigmas_vis = [0.0, 0.05, 0.15, 0.30]
+
+idx = 2
+img, label = test_dataset[idx]
+
+sal_orig = grad.compute_saliency(img.unsqueeze(0), torch.tensor([label]), simple_CNN).squeeze()
+
+n_cols = len(sigmas_vis)
+fig, axes = plt.subplots(3, n_cols, figsize=(5 * n_cols, 13))
+fig.suptitle(
+    f"Fragilidad ante ruido gaussiano — label={label}", fontsize=13
+)
+
+for col, sigma in enumerate(sigmas_vis):
+    noisy_img, sal, pred, conf = saliency_under_noise(img, label, simple_CNN, sigma, device)
+    noisy_vis = noisy_img[0].numpy()
+    diff = sal - sal_orig
+
+    # Fila 0: imagen perturbada
+    axes[0, col].imshow(noisy_vis, cmap="gray", vmin=0, vmax=1)
+    axes[0, col].axis("off")
+    axes[0, col].set_title(f"σ={sigma}\nPred: {pred} ({conf:.1%})", fontsize=10)
+
+    # Fila 1: saliency map
+    im1 = axes[1, col].imshow(sal, cmap="jet", vmin=0, vmax=1)
+    axes[1, col].axis("off")
+    axes[1, col].set_title("Saliency")
+    fig.colorbar(im1, ax=axes[1, col], fraction=0.046, pad=0.04)
+
+    # Fila 2: diferencia respecto al mapa original
+    vmax_diff = max(float(np.abs(diff).max()), 1e-6)
+    im2 = axes[2, col].imshow(diff, cmap="RdBu", vmin=-vmax_diff, vmax=vmax_diff)
+    axes[2, col].axis("off")
+    axes[2, col].set_title("Diferencia vs. original")
+    fig.colorbar(im2, ax=axes[2, col], fraction=0.046, pad=0.04)
+
+plt.tight_layout()
+plt.show()
+
+
+# %% [markdown]
+# ## Estabilidad del saliency map ante ruido gaussiano
+
+# %%
+from scipy.stats import spearmanr
+
+
+def saliency_stability_metrics(
+    img: torch.Tensor,
+    label: int,
+    model: torch.nn.Module,
+    sigmas: list,
+    n_repeats: int,
+    device: torch.device,
+) -> dict:
+    """
+    Para cada sigma, repite n_repeats veces con semillas distintas y calcula:
+    - Correlación de Spearman entre el saliency perturbado y el original.
+    - Distancia L2 normalizada entre ambos mapas.
+    """
+    sal_orig = (
+        grad.compute_saliency(img.unsqueeze(0), torch.tensor([label]), model)
+        .squeeze()
+        .flatten()
+    )
+
+    results = {sigma: {"spearman": [], "l2": []} for sigma in sigmas}
+
+    for sigma in sigmas:
+        for seed in range(n_repeats):
+            torch.manual_seed(seed)
+            noise = torch.randn_like(img) * sigma
+            noisy = (img + noise).clamp(0, 1)
+            sal = (
+                grad.compute_saliency(noisy.unsqueeze(0), torch.tensor([label]), model)
+                .squeeze()
+                .flatten()
+            )
+
+            rho, _ = spearmanr(sal_orig, sal)
+            results[sigma]["spearman"].append(float(rho))
+
+            l2 = float(np.linalg.norm(sal - sal_orig) / (np.linalg.norm(sal_orig) + 1e-12))
+            results[sigma]["l2"].append(l2)
+
+    return results
+
+
+# %%
+sigmas_quant = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
+n_repeats = 20
+
+idx = 2
+img, label = test_dataset[idx]
+
+stability = saliency_stability_metrics(img, label, simple_NN, sigmas_quant, n_repeats, device)
+
+sigmas_arr = np.array(sigmas_quant)
+spearman_mean = np.array([np.mean(stability[s]["spearman"]) for s in sigmas_quant])
+spearman_std = np.array([np.std(stability[s]["spearman"]) for s in sigmas_quant])
+l2_mean = np.array([np.mean(stability[s]["l2"]) for s in sigmas_quant])
+l2_std = np.array([np.std(stability[s]["l2"]) for s in sigmas_quant])
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+fig.suptitle("Estabilidad del saliency map ante ruido", fontsize=13)
+
+ax1.plot(sigmas_arr, spearman_mean, marker="o", color="steelblue")
+ax1.fill_between(
+    sigmas_arr,
+    spearman_mean - spearman_std,
+    spearman_mean + spearman_std,
+    alpha=0.25,
+    color="steelblue",
+)
+ax1.set_xlabel("Nivel de ruido σ")
+ax1.set_ylabel("Correlación de Spearman")
+ax1.set_title("Correlación de Spearman")
+ax1.set_ylim(-0.1, 1.1)
+ax1.grid(True, linestyle="--", alpha=0.6)
+
+ax2.plot(sigmas_arr, l2_mean, marker="o", color="coral")
+ax2.fill_between(
+    sigmas_arr,
+    l2_mean - l2_std,
+    l2_mean + l2_std,
+    alpha=0.25,
+    color="coral",
+)
+ax2.set_xlabel("Nivel de ruido σ")
+ax2.set_ylabel("Distancia L2 normalizada")
+ax2.set_title("Distancia L2 normalizada")
+ax2.grid(True, linestyle="--", alpha=0.6)
+
+plt.tight_layout()
+plt.show()
+
+print(f"\n{'σ':>6} | {'Spearman (mean ± std)':>24} | {'L2 norm (mean ± std)':>24}")
+print("-" * 62)
+for sigma in sigmas_quant:
+    sp_m = np.mean(stability[sigma]["spearman"])
+    sp_s = np.std(stability[sigma]["spearman"])
+    l2_m = np.mean(stability[sigma]["l2"])
+    l2_s = np.std(stability[sigma]["l2"])
+    print(f"{sigma:>6.2f} | {sp_m:>10.4f} ± {sp_s:<10.4f} | {l2_m:>10.4f} ± {l2_s:<10.4f}")
+
+# %%
+batch, labels = next(iter(train_dataloader))
+img, cls = batch[0], labels[0]
+figs_path = images_path / "through_convnet"
+sigma = 0.45
+
+# first convnet
+noise = torch.randn_like(img) * sigma
+noisy = (img + noise).clamp(0, 1)
+out1 = solid_cnn.conv1(noisy.to(device))
+
+# kernels conv1
+idx = 2
+sample = out1[idx].cpu().detach().numpy()
+weights = solid_cnn.conv1.weight.cpu().detach().numpy()
+kernel = weights[idx].squeeze()
+
+fig, (ax0, ax1, ax2) = plt.subplots(nrows=1, ncols=3, figsize=(12, 6))
+
+ax0.set_title(f"Entrada {noisy.shape[1]}x{noisy.shape[2]}")
+ax0.imshow(noisy.squeeze(), cmap="gray")
+ax0.axis("off")
+
+ax1.set_title(f"K{idx}@{kernel.shape[0]}x{kernel.shape[1]}")
+ax1.imshow(kernel, cmap="jet")
+for i in range(kernel.shape[0]):
+    for j in range(kernel.shape[1]):
+        text = ax1.text(
+            j,
+            i,
+            round(kernel[i, j], 3),
+            ha="center",
+            va="center",
+            color="white",
+            weight="bold",
+        )
+ax1.axis("off")
+
+ax2.set_title(f"FM{idx}@{sample.shape[0]}x{sample.shape[1]}")
+ax2.imshow(sample.squeeze())
+ax2.axis("off")
+plt.savefig(figs_path / "mapa_caracterisicas_con_kernel.png")
+plt.show()
 
 # %%

@@ -193,8 +193,9 @@ def show_avg_saliency_by_class(
 
     for i, (label, saliency) in enumerate(avg_saliency_by_class.items()):
         ax = axes[i]
-        ax.imshow(saliency, cmap="jet")
+        im = ax.imshow(saliency, cmap="jet")
         ax.axis("off")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         ax_title = f"Class {label}"
         if class_names and label in class_names:
             ax_title += f": {class_names[label]}"
@@ -333,25 +334,32 @@ class GradCAM:
         if img.dim() > 4 or img.dim() < 2 or cam.dim() > 4 or cam.dim() < 4:
             raise ValueError("img and heatmap must be 2D, 3D or 4D tensor")
 
-        # prepare image dims to rgb == [B, 3, W, H]
+        # Ensure img is (B, C, H, W)
         if img.dim() < 3:
             img = img.unsqueeze(0)
         if img.dim() == 3:
             img = img.unsqueeze(0)
-        img = img.repeat(1, 3, 1, 1).permute(0, 2, 3, 1)
 
-        # prepare heat map to rgb == [B, 3, W, H]
-        cam_np = cam.squeeze().cpu().numpy()
-        cmap = cm.get_cmap(colormap)
-        heatmap = cmap(cam_np)[..., :3]
-        heatmap = torch.from_numpy(heatmap).unsqueeze(0).to(img.device)
+        # Convert grayscale to 3-channel RGB
+        if img.shape[1] == 1:
+            img = img.repeat(1, 3, 1, 1)
+
+        img = img.permute(0, 2, 3, 1).float()  # (B, H, W, 3)
+
+        # Normalize img to [0, 1] for display
+        img_min = img.amin(dim=(1, 2, 3), keepdim=True)
+        img_max = img.amax(dim=(1, 2, 3), keepdim=True)
+        img = (img - img_min) / (img_max - img_min + 1e-12)
+
+        # Build heatmap per sample: (B, 1, H, W) -> (B, H, W, 3)
+        cam_np = cam[:, 0].cpu().numpy()  # (B, H, W)
+        cmap_fn = cm.get_cmap(colormap)
+        heatmap_np = np.stack([cmap_fn(cam_np[i])[..., :3] for i in range(cam_np.shape[0])])
+        heatmap = torch.from_numpy(heatmap_np).float().to(img.device)  # (B, H, W, 3)
 
         overlay = (1 - alpha) * img + alpha * heatmap
         overlay = overlay.clamp(0, 1)
-        if overlay.dim() < 3:
-            overlay = overlay.unsqueeze(0)
-        if overlay.dim() == 3:
-            overlay = overlay.unsqueeze(0)
+        overlay = overlay.permute(0, 3, 1, 2)  # (B, 3, H, W)
 
         return overlay
 
