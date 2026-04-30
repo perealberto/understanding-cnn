@@ -331,8 +331,8 @@ class GradCAM:
             overlay: (B, 3, H, W)
         """
 
-        if img.dim() > 4 or img.dim() < 2 or cam.dim() > 4 or cam.dim() < 4:
-            raise ValueError("img and heatmap must be 2D, 3D or 4D tensor")
+        if img.dim() > 4 or img.dim() < 2 or cam.dim() != 4:
+            raise ValueError("img must be 2D–4D and cam must be 4D (B, 1, H, W)")
 
         # Ensure img is (B, C, H, W)
         if img.dim() < 3:

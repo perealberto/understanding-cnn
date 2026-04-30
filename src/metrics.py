@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from scipy.stats import binom, chi2
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -47,11 +48,7 @@ def _collect_outputs(
     for X, y in dataloader:
         X = X.to(device)
         y = y.to(device)
-        t0 = time.perf_counter()  # noqa: F841
         logits = model(X)
-        _ = logits.argmax(1)  # forces execution to measure time
-        t1 = time.perf_counter()  # noqa: F841
-
         probs = F.softmax(logits, dim=1)
         preds = logits.argmax(1)
 
@@ -256,8 +253,6 @@ def mcnemar_test_from_predictions(
     n = n01 + n10
 
     pvalue = 0.0
-
-    from scipy.stats import binom, chi2
 
     n_min, n_max = sorted([n01, n10])
     corr = int(continuity_correction)

@@ -53,8 +53,7 @@ def to_device(obj: Any, device: torch.device) -> Any:
     if isinstance(obj, dict):
         return {k: to_device(v, device) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
-        t = [to_device(o, device) for o in obj]
-        return type(obj)(t) if not isinstance(obj, tuple) else tuple(t)
+        return type(obj)(to_device(o, device) for o in obj)
     return obj
 
 
@@ -155,32 +154,25 @@ class Trainer:
                 self.save_path = self.save_path.with_suffix(".ckpt")
 
     def fit(self) -> Dict[str, list]:
-        # Initialize history dictionary to store training and validation losses
         history: Dict[str, list] = {"train_loss": []}
         if self.val_loader is not None:
             history["val_loss"] = []
 
-        # Loop through each epoch
         for epoch in range(1, self.epochs + 1):
-            self.model.train()  # Set model to training mode
+            self.model.train()
             running_loss, n_samples = 0.0, 0
 
-            # Iterate over training batches
             for step, batch in enumerate(self.train_loader, start=1):
-                # Unpack and move batch data to the target device
                 x, y = unpack_batch(batch)
                 x, y = to_device(x, self.device), to_device(y, self.device)
 
-                # Forward pass
                 preds = self.model(x)
-                loss = self.loss_fn(preds, y)  # Compute loss
+                loss = self.loss_fn(preds, y)
 
-                # Backward pass and optimization
-                self.optimizer.zero_grad(set_to_none=True)  # Clear gradients
-                loss.backward()  # Compute gradients
-                self.optimizer.step()  # Update model parameters
+                self.optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                self.optimizer.step()
 
-                # Accumulate loss and sample count for the current batch
                 batch_size = (
                     y.shape[0] if hasattr(y, "shape") and len(y.shape) > 0 else 1
                 )
@@ -192,25 +184,20 @@ class Trainer:
                         f"[Epoch {epoch}/{self.epochs}] step {step}: train_loss={running_loss / max(1, n_samples):.4f}"
                     )
 
-            # Compute and store average training loss for the epoch
             epoch_train_loss = running_loss / max(1, n_samples)
             history["train_loss"].append(epoch_train_loss)
 
-            # Perform validation if a validation DataLoader is provided
             if self.val_loader is not None:
-                self.model.eval()  # Set model to evaluation mode
+                self.model.eval()
                 val_loss_sum, val_n = 0.0, 0
-                with torch.no_grad():  # Disable gradient computation for validation
+                with torch.no_grad():
                     for batch in self.val_loader:
-                        # Unpack and move batch data to the target device
                         x, y = unpack_batch(batch)
                         x, y = to_device(x, self.device), to_device(y, self.device)
 
-                        # Forward pass and compute loss
                         preds = self.model(x)
                         loss = self.loss_fn(preds, y)
 
-                        # Accumulate validation loss and sample count
                         batch_size = (
                             y.shape[0]
                             if hasattr(y, "shape") and len(y.shape) > 0
@@ -219,22 +206,16 @@ class Trainer:
                         val_loss_sum += float(loss.item()) * batch_size
                         val_n += batch_size
 
-                # Compute and store average validation loss for the epoch
                 epoch_val_loss = val_loss_sum / max(1, val_n)
                 history["val_loss"].append(epoch_val_loss)
-
                 print(
                     f"[Epoch {epoch}] train_loss={epoch_train_loss:.4f} | val_loss={epoch_val_loss:.4f}"
                 )
             else:
                 print(f"[Epoch {epoch}] train_loss={epoch_train_loss:.4f}")
 
-            # Save the model checkpoint if a save path is specified
             if self.save_path:
-                torch.save(
-                    self.model.state_dict(),
-                    self.save_path,
-                )
+                torch.save(self.model.state_dict(), self.save_path)
 
         return history
 
@@ -294,15 +275,6 @@ class SimpleCNN(nn.Module):
         fc1 (nn.Linear): Fully connected layer with input size 64 * 5 * 5 and output size 120.
         fc2 (nn.Linear): Fully connected layer with input size 120 and output size 84.
         fc3 (nn.Linear): Fully connected layer with input size 84 and output size 10.
-        _acts (torch.Tensor): Stores the activations of the last convolutional layer.
-        _grads (torch.Tensor): Stores the gradients of the output with respect to the activations of the last convolutional layer.
-    Methods:
-        forward(x):
-            Defines the forward pass of the network. Takes an input tensor `x` and returns the output tensor.
-        get_activations():
-            Returns the activations of the last convolutional layer.
-        get_activations_gradient():
-            Returns the gradients of the output with respect to the activations of the last convolutional layer.
     """
 
     def __init__(self):
