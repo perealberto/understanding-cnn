@@ -354,7 +354,9 @@ class GradCAM:
         # Build heatmap per sample: (B, 1, H, W) -> (B, H, W, 3)
         cam_np = cam[:, 0].cpu().numpy()  # (B, H, W)
         cmap_fn = cm.get_cmap(colormap)
-        heatmap_np = np.stack([cmap_fn(cam_np[i])[..., :3] for i in range(cam_np.shape[0])])
+        heatmap_np = np.stack(
+            [cmap_fn(cam_np[i])[..., :3] for i in range(cam_np.shape[0])]
+        )
         heatmap = torch.from_numpy(heatmap_np).float().to(img.device)  # (B, H, W, 3)
 
         overlay = (1 - alpha) * img + alpha * heatmap
