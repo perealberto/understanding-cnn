@@ -15,4 +15,4 @@ __pycache__/
 **/.mypy_cache/**
 **/.ruff_cache/**
 **/doc/**
-!**/doc/TFG.pdf
+!**/doc/entendiendo_redes_convolucionales.pdf
