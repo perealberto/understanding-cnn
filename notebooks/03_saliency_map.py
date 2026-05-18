@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.17.2
+#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python 3 (ipykernel)
 #     language: python
@@ -49,8 +49,8 @@ device: torch.device = models.get_device()
 print(f"Using {device} device")
 
 # %%
-train_dataset = datasets.MNIST(root=datasets_path, transform=ToTensor())
-test_dataset = datasets.MNIST(root=datasets_path, train=False, transform=ToTensor())
+train_dataset = datasets.MNIST(root=datasets_path, transform=ToTensor(), download=True)
+test_dataset = datasets.MNIST(root=datasets_path, train=False, transform=ToTensor(), download=True)
 
 train_size = int(0.8 * len(train_dataset))
 val_size = len(train_dataset) - train_size
@@ -66,44 +66,44 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 # ## Neural Network
 
 # %%
-simple_NN = models.SimpleNN()
-if not (models_path / "simple_NN.ckpt").exists():
+fcnet = models.FCNet()
+if not (models_path / "fcnet.ckpt").exists():
     trainer = models.Trainer(
-        model=simple_NN,
-        optimizer=optim.Adam(simple_NN.parameters(), lr=1e-3),
+        model=fcnet,
+        optimizer=optim.Adam(fcnet.parameters(), lr=1e-3),
         loss_fn=nn.CrossEntropyLoss(),
         train_loader=train_dataloader,
         val_loader=val_dataloader,
         device=device,
-        save_name="simple_NN",
+        save_name="fcnet",
     )
     trainer.fit()
 else:
-    checkpoint = torch.load(models_path / "simple_NN.ckpt", map_location=device)
-    simple_NN.load_state_dict(checkpoint)
-    simple_NN = simple_NN.to(device).eval()
+    checkpoint = torch.load(models_path / "fcnet.ckpt", map_location=device)
+    fcnet.load_state_dict(checkpoint)
+    fcnet = fcnet.to(device).eval()
 
 
 # %% [markdown]
 # ## Convolutional NN
 
 # %%
-simple_CNN = models.SimpleCNN()
-if not (models_path / "simple_CNN.ckpt").exists():
+convnet = models.ConvNet()
+if not (models_path / "convnet.ckpt").exists():
     trainer = models.Trainer(
-        model=simple_CNN,
-        optimizer=optim.Adam(simple_CNN.parameters(), lr=1e-3),
+        model=convnet,
+        optimizer=optim.Adam(convnet.parameters(), lr=1e-3),
         loss_fn=nn.CrossEntropyLoss(),
         train_loader=train_dataloader,
         val_loader=val_dataloader,
         device=device,
-        save_name="simple_CNN",
+        save_name="convnet",
     )
     trainer.fit()
 else:
-    checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
-    simple_CNN.load_state_dict(checkpoint)
-    simple_CNN = simple_CNN.to(device).eval()
+    checkpoint = torch.load(models_path / "convnet.ckpt", map_location=device)
+    convnet.load_state_dict(checkpoint)
+    convnet = convnet.to(device).eval()
 
 
 # %% [markdown]
@@ -115,11 +115,11 @@ img, label = test_dataset[idx]
 x = img.unsqueeze(0)
 y = torch.tensor([label])
 
-sal = grad.compute_saliency(x, y, simple_NN)
+sal = grad.compute_saliency(x, y, fcnet)
 grad.show_image_and_saliency(img, sal, title=f"NN - Saliency (label={label})")
 
 # %%
-sal = grad.compute_saliency(x, y, simple_CNN)
+sal = grad.compute_saliency(x, y, convnet)
 grad.show_image_and_saliency(img, sal, title=f"CNN - Saliency (label={label})")
 
 
@@ -138,11 +138,11 @@ ax.bar_label(bars)
 plt.show()
 
 # %%
-avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, simple_NN, device)
+avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, fcnet, device)
 grad.show_avg_saliency_by_class(avg_saliency_map, None, "AVG Saliency Map by Class - Simple NN")
 
 # %%
-avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, simple_CNN, device)
+avg_saliency_map = grad.compute_avg_saliency_by_class(test_dataloader, convnet, device)
 grad.show_avg_saliency_by_class(avg_saliency_map, None, "AVG Saliency Map by Class - Simple CNN")
 
 
@@ -150,15 +150,23 @@ grad.show_avg_saliency_by_class(avg_saliency_map, None, "AVG Saliency Map by Cla
 # ## Top 3 most confusing
 
 # %%
-y_true_NN, y_pred_NN, *_ = metrics._collect_outputs(test_dataloader, simple_NN, device)
+y_true_NN, y_pred_NN, *_ = metrics._collect_outputs(test_dataloader, fcnet, device)
 metrics.print_top_k_confusions("Simple NN top 3 confusions", y_true_NN, y_pred_NN)
 
 # %%
 y_true_CNN, y_pred_CNN, *_ = metrics._collect_outputs(
-    test_dataloader, simple_CNN, device
+    test_dataloader, convnet, device
 )
 metrics.print_top_k_confusions("Simple CNN top 3 confusions", y_true_CNN, y_pred_CNN)
 
+
+# %%
+m_nn = metrics.evaluate_model("FCNet",  test_dataloader, fcnet,  device)
+print(f"Accuracy: {m_nn['accuracy']}, F1: {m_nn['f1_macro']}, Loss_CE: {m_nn['loss_ce']}, Infer time: {m_nn['infer_time_ms_per_sample']}")
+
+# %%
+m_cnn = metrics.evaluate_model("ConvNet",  test_dataloader, convnet,  device)
+print(f"Accuracy: {m_cnn['accuracy']}, F1: {m_cnn['f1_macro']}, Loss_CE: {m_cnn['loss_ce']}, Infer time: {m_cnn['infer_time_ms_per_sample']}")
 
 # %% [markdown]
 # ## Comparación 4 modelos
@@ -292,7 +300,7 @@ def get_misclassified_samples(dataset, model, device, n=5):
 
 
 # %%
-for model_name, model in [("Simple NN", simple_NN), ("Simple CNN", simple_CNN)]:
+for model_name, model in [("FCNet", fcnet), ("ConvNet", convnet)]:
     misclassified = get_misclassified_samples(test_dataset, model, device, n=5)
 
     n = len(misclassified)
@@ -359,7 +367,7 @@ top_pairs = get_confused_pairs(y_true_CNN, y_pred_CNN, k=3)
 n_examples = 4
 for (true_cls, pred_cls), count in top_pairs:
     examples = get_examples_for_pair(
-        test_dataset, simple_CNN, device, true_cls, pred_cls, n=n_examples
+        test_dataset, convnet, device, true_cls, pred_cls, n=n_examples
     )
     if not examples:
         continue
@@ -377,7 +385,7 @@ for (true_cls, pred_cls), count in top_pairs:
     for col, img in enumerate(examples):
         x = img.unsqueeze(0)
         y = torch.tensor([true_cls])
-        sal = grad.compute_saliency(x, y, simple_CNN).squeeze()
+        sal = grad.compute_saliency(x, y, convnet).squeeze()
         img_vis = img[0].numpy()
 
         axes[col].imshow(img_vis, cmap="gray")
@@ -424,7 +432,7 @@ sigmas_vis = [0.0, 0.05, 0.15, 0.30]
 idx = 2
 img, label = test_dataset[idx]
 
-sal_orig = grad.compute_saliency(img.unsqueeze(0), torch.tensor([label]), simple_CNN).squeeze()
+sal_orig = grad.compute_saliency(img.unsqueeze(0), torch.tensor([label]), convnet).squeeze()
 
 n_cols = len(sigmas_vis)
 fig, axes = plt.subplots(3, n_cols, figsize=(5 * n_cols, 13))
@@ -433,7 +441,7 @@ fig.suptitle(
 )
 
 for col, sigma in enumerate(sigmas_vis):
-    noisy_img, sal, pred, conf = saliency_under_noise(img, label, simple_CNN, sigma, device)
+    noisy_img, sal, pred, conf = saliency_under_noise(img, label, convnet, sigma, device)
     noisy_vis = noisy_img[0].numpy()
     diff = sal - sal_orig
 
@@ -514,7 +522,7 @@ n_repeats = 20
 idx = 2
 img, label = test_dataset[idx]
 
-stability = saliency_stability_metrics(img, label, simple_NN, sigmas_quant, n_repeats, device)
+stability = saliency_stability_metrics(img, label, fcnet, sigmas_quant, n_repeats, device)
 
 sigmas_arr = np.array(sigmas_quant)
 spearman_mean = np.array([np.mean(stability[s]["spearman"]) for s in sigmas_quant])
@@ -567,7 +575,7 @@ for sigma in sigmas_quant:
 # %%
 batch, labels = next(iter(train_dataloader))
 img, cls = batch[0], labels[0]
-figs_path = images_path / "through_convnet"
+figs_path = images_path / "ejemplos"
 sigma = 0.45
 
 # first convnet

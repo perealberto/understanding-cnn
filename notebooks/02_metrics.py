@@ -133,8 +133,8 @@ class NeuralNetwork(nn.Module):
         return logits
 
 
-simple_nn = NeuralNetwork().to(device)
-print(simple_nn)
+fcnet = NeuralNetwork().to(device)
+print(fcnet)
 
 
 # +
@@ -159,24 +159,24 @@ class CNN(nn.Module):
         return x
 
 
-simple_cnn = CNN().to(device)
-print(simple_cnn)
+convnet = CNN().to(device)
+print(convnet)
 # -
 
 # ## Train models
 
 # simple neural network
 loss_fn = nn.CrossEntropyLoss()
-optimizer_nn = torch.optim.SGD(simple_nn.parameters())
+optimizer_nn = torch.optim.SGD(fcnet.parameters())
 train_batch(
-    train_dataloader, test_dataloader, 10, simple_nn, loss_fn, optimizer_nn, device
+    train_dataloader, test_dataloader, 10, fcnet, loss_fn, optimizer_nn, device
 )
 
 # convolutional neural network
 loss_fn = nn.CrossEntropyLoss()
-optimizer_cnn = torch.optim.SGD(simple_cnn.parameters())
+optimizer_cnn = torch.optim.SGD(convnet.parameters())
 train_batch(
-    train_dataloader, test_dataloader, 10, simple_cnn, loss_fn, optimizer_cnn, device
+    train_dataloader, test_dataloader, 10, convnet, loss_fn, optimizer_cnn, device
 )
 
 
@@ -319,11 +319,11 @@ def mcnemar_test_from_predictions(
     }
 
 
-metrics_nn = evaluate_model("MLP simple", test_dataloader, simple_nn, device)
-metrics_cnn = evaluate_model("CNN simple", test_dataloader, simple_cnn, device)
+metrics_nn = evaluate_model("MLP simple", test_dataloader, fcnet, device)
+metrics_cnn = evaluate_model("CNN simple", test_dataloader, convnet, device)
 
-y_true_NN, y_pred_NN, _, _, _ = _collect_outputs(test_dataloader, simple_nn, device)
-y_true_CNN, y_pred_CNN, _, _, _ = _collect_outputs(test_dataloader, simple_cnn, device)
+y_true_NN, y_pred_NN, _, _, _ = _collect_outputs(test_dataloader, fcnet, device)
+y_true_CNN, y_pred_CNN, _, _, _ = _collect_outputs(test_dataloader, convnet, device)
 assert np.array_equal(y_true_NN, y_true_CNN), "y_true must be the same for NN y CNN."
 comp = mcnemar_test_from_predictions(y_true_NN, y_pred_NN, y_pred_CNN, True)
 

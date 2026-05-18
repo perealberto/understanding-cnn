@@ -179,59 +179,59 @@ print(f"Pruebas       : {len(test_dataset):>6} muestras")
 #
 # | Modelo | Arquitectura | Parámetros |
 # |--------|-------------|------------|
-# | `SimpleNN` | 784 → 512 → 512 → 10 (ReLU) | ~670 K |
-# | `SimpleCNN` | Conv(32,3×3) → Pool → Conv(64,3×3) → Pool → FC(120) → FC(84) → 10 | ~107 K |
+# | `FCNet` | 784 → 512 → 512 → 10 (ReLU) | ~670 K |
+# | `ConvNet` | Conv(32,3×3) → Pool → Conv(64,3×3) → Pool → FC(120) → FC(84) → 10 | ~107 K |
 #
 # Si ya existen los checkpoints de sesiones anteriores se cargan directamente;
 # si no, los entrenamos ahora.
 
 # %%
-simple_nn = models.SimpleNN()
-if (MODEL_DIR / 'simple_NN.ckpt').exists():
-    simple_nn.load_state_dict(
-        torch.load(MODEL_DIR / 'simple_NN.ckpt', map_location=DEVICE))
-    simple_nn = simple_nn.to(DEVICE).eval()
-    print("✅ SimpleNN cargado desde checkpoint")
+fcnet = models.FCNet()
+if (MODEL_DIR / 'fcnet.ckpt').exists():
+    fcnet.load_state_dict(
+        torch.load(MODEL_DIR / 'fcnet.ckpt', map_location=DEVICE))
+    fcnet = fcnet.to(DEVICE).eval()
+    print("✅ FCNet cargado desde checkpoint")
 else:
     trainer_nn = models.Trainer(
-        model=simple_nn,
-        optimizer=optim.Adam(simple_nn.parameters(), lr=LR),
+        model=fcnet,
+        optimizer=optim.Adam(fcnet.parameters(), lr=LR),
         loss_fn=nn.CrossEntropyLoss(),
         train_loader=train_loader,
         val_loader=val_loader,
         device=DEVICE,
-        save_name='simple_NN',
+        save_name='fcnet',
         save_path=MODEL_DIR,
     )
     trainer_nn.fit()
-    simple_nn = simple_nn.eval()
-    print("✅ SimpleNN entrenado y guardado")
+    fcnet = fcnet.eval()
+    print("✅ FCNet entrenado y guardado")
 
-simple_cnn = models.SimpleCNN()
-if (MODEL_DIR / 'simple_CNN.ckpt').exists():
-    simple_cnn.load_state_dict(
-        torch.load(MODEL_DIR / 'simple_CNN.ckpt', map_location=DEVICE))
-    simple_cnn = simple_cnn.to(DEVICE).eval()
-    print("✅ SimpleCNN cargado desde checkpoint")
+convnet = models.ConvNet()
+if (MODEL_DIR / 'convnet.ckpt').exists():
+    convnet.load_state_dict(
+        torch.load(MODEL_DIR / 'convnet.ckpt', map_location=DEVICE))
+    convnet = convnet.to(DEVICE).eval()
+    print("✅ ConvNet cargado desde checkpoint")
 else:
     trainer_cnn = models.Trainer(
-        model=simple_cnn,
-        optimizer=optim.Adam(simple_cnn.parameters(), lr=LR),
+        model=convnet,
+        optimizer=optim.Adam(convnet.parameters(), lr=LR),
         loss_fn=nn.CrossEntropyLoss(),
         train_loader=train_loader,
         val_loader=val_loader,
         device=DEVICE,
-        save_name='simple_CNN',
+        save_name='convnet',
         save_path=MODEL_DIR,
     )
     trainer_cnn.fit()
-    simple_cnn = simple_cnn.eval()
-    print("✅ SimpleCNN entrenado y guardado")
+    convnet = convnet.eval()
+    print("✅ ConvNet entrenado y guardado")
 
-params_nn  = sum(p.numel() for p in simple_nn.parameters())
-params_cnn = sum(p.numel() for p in simple_cnn.parameters())
-print(f"\n  SimpleNN  : {params_nn:>9,} parámetros")
-print(f"  SimpleCNN : {params_cnn:>9,} parámetros")
+params_nn  = sum(p.numel() for p in fcnet.parameters())
+params_cnn = sum(p.numel() for p in convnet.parameters())
+print(f"\n  FCNet  : {params_nn:>9,} parámetros")
+print(f"  ConvNet: {params_cnn:>9,} parámetros")
 
 
 # %% [markdown]
@@ -344,15 +344,15 @@ def evaluar_con_ruido(modelo, loader, sigma, dispositivo, seed=SEED):
 sigmas_exp = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 
 print("Evaluando modelos bajo ruido...")
-print(f"{'σ':>5} │ {'SimpleNN (%)':>13} │ {'SimpleCNN (%)':>13}")
+print(f"{'σ':>5} │ {'FCNet (%)':>13} │ {'ConvNet (%)':>13}")
 print("─" * 38)
 
 acc_nn  = []
 acc_cnn = []
 
 for sigma in sigmas_exp:
-    a_nn  = evaluar_con_ruido(simple_nn,  test_loader, sigma, DEVICE)
-    a_cnn = evaluar_con_ruido(simple_cnn, test_loader, sigma, DEVICE)
+    a_nn  = evaluar_con_ruido(fcnet,  test_loader, sigma, DEVICE)
+    a_cnn = evaluar_con_ruido(convnet, test_loader, sigma, DEVICE)
     acc_nn.append(a_nn)
     acc_cnn.append(a_cnn)
     print(f"{sigma:>5.2f} │ {a_nn:>12.2f}% │ {a_cnn:>12.2f}%")
@@ -362,9 +362,9 @@ for sigma in sigmas_exp:
 fig, ax = plt.subplots(figsize=(9, 5))
 
 ax.plot(sigmas_exp, acc_nn,  color='#3498db', lw=2.5, marker='o',
-        markersize=7, label='SimpleNN (MLP)')
+        markersize=7, label='FCNet (MLP)')
 ax.plot(sigmas_exp, acc_cnn, color='#e74c3c', lw=2.5, marker='s',
-        markersize=7, label='SimpleCNN')
+        markersize=7, label='ConvNet')
 
 # Zona de degradación notable
 ax.axvspan(0.15, 0.30, alpha=0.06, color='#e74c3c', label='Zona de ruido notable')
@@ -388,7 +388,7 @@ ax.annotate(
 )
 
 fig_save('precision_bajo_ruido.png', fig_n.sig(),
-         'Precisión de SimpleNN y SimpleCNN en función del nivel de ruido σ')
+         'Precisión de FCNet y ConvNet en función del nivel de ruido σ')
 plt.tight_layout()
 plt.show()
 
@@ -431,11 +431,11 @@ print(f"\nA σ = 0.30 la CNN supera al MLP en {delta:.1f} puntos porcentuales")
 fig, axes = plt.subplots(3, len(sigmas_vis), figsize=(14, 9))
 
 sal_orig_nn  = grad.compute_saliency(
-    img_ejemplo.unsqueeze(0), torch.tensor([label_ejemplo]), simple_nn).squeeze()
+    img_ejemplo.unsqueeze(0), torch.tensor([label_ejemplo]), fcnet).squeeze()
 sal_orig_cnn = grad.compute_saliency(
-    img_ejemplo.unsqueeze(0), torch.tensor([label_ejemplo]), simple_cnn).squeeze()
+    img_ejemplo.unsqueeze(0), torch.tensor([label_ejemplo]), convnet).squeeze()
 
-row_labels = ['Imagen ruidosa', 'Saliency (SimpleNN)', 'Saliency (SimpleCNN)']
+row_labels = ['Imagen ruidosa', 'Saliency (FCNet)', 'Saliency (ConvNet)']
 
 for col, sigma in enumerate(sigmas_vis):
     torch.manual_seed(0)
@@ -443,25 +443,25 @@ for col, sigma in enumerate(sigmas_vis):
     noisy = (img_ejemplo + noise).clamp(0, 1)
 
     sal_nn  = grad.compute_saliency(
-        noisy.unsqueeze(0), torch.tensor([label_ejemplo]), simple_nn).squeeze()
+        noisy.unsqueeze(0), torch.tensor([label_ejemplo]), fcnet).squeeze()
     sal_cnn = grad.compute_saliency(
-        noisy.unsqueeze(0), torch.tensor([label_ejemplo]), simple_cnn).squeeze()
+        noisy.unsqueeze(0), torch.tensor([label_ejemplo]), convnet).squeeze()
 
     # Predicciones
     with torch.no_grad():
-        p_nn  = simple_nn(noisy.unsqueeze(0).to(DEVICE)).argmax(1).item()
-        p_cnn = simple_cnn(noisy.unsqueeze(0).to(DEVICE)).argmax(1).item()
+        p_nn  = fcnet(noisy.unsqueeze(0).to(DEVICE)).argmax(1).item()
+        p_cnn = convnet(noisy.unsqueeze(0).to(DEVICE)).argmax(1).item()
 
     # Fila 0: imagen
     axes[0, col].imshow(noisy.squeeze(), cmap='gray', vmin=0, vmax=1)
     axes[0, col].set_title(f'σ={sigma}\nNN→{p_nn} | CNN→{p_cnn}', fontsize=9)
     axes[0, col].axis('off')
 
-    # Fila 1: saliency SimpleNN
+    # Fila 1: saliency FCNet
     axes[1, col].imshow(sal_nn, cmap='viridis', vmin=0)
     axes[1, col].axis('off')
 
-    # Fila 2: saliency SimpleCNN
+    # Fila 2: saliency ConvNet
     axes[2, col].imshow(sal_cnn, cmap='viridis', vmin=0)
     axes[2, col].axis('off')
 
@@ -469,7 +469,7 @@ for row, label in enumerate(row_labels):
     axes[row, 0].set_ylabel(label, fontsize=9, fontweight='bold')
 
 fig_save('saliency_bajo_ruido.png', fig_n.sig(),
-         'Saliency maps de SimpleNN y SimpleCNN a distintos niveles de ruido σ',
+         'Saliency maps de FCNet y ConvNet a distintos niveles de ruido σ',
          y=1.02)
 plt.tight_layout()
 plt.show()
@@ -515,8 +515,8 @@ def saliency_stability(img, label, modelo, sigmas, n_repeats=20, device=DEVICE):
 sigmas_quant = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 
 print("Calculando estabilidad del saliency (20 repeticiones por σ)...")
-stab_nn  = saliency_stability(img_ejemplo, label_ejemplo, simple_nn,  sigmas_quant)
-stab_cnn = saliency_stability(img_ejemplo, label_ejemplo, simple_cnn, sigmas_quant)
+stab_nn  = saliency_stability(img_ejemplo, label_ejemplo, fcnet,  sigmas_quant)
+stab_cnn = saliency_stability(img_ejemplo, label_ejemplo, convnet, sigmas_quant)
 print("✅ Listo")
 
 
@@ -532,8 +532,8 @@ for ax, metrica, ylabel, ylims in zip(
     [(-.05, 1.05), (-.02, None)],
 ):
     for stab, nombre, color in [
-        (stab_nn,  'SimpleNN',  '#3498db'),
-        (stab_cnn, 'SimpleCNN', '#e74c3c'),
+        (stab_nn,  'FCNet',  '#3498db'),
+        (stab_cnn, 'ConvNet', '#e74c3c'),
     ]:
         media = np.array([np.mean(stab[s][metrica]) for s in sigmas_quant])
         std   = np.array([np.std(stab[s][metrica])  for s in sigmas_quant])
@@ -599,7 +599,7 @@ for s in sigmas_quant:
 # %%
 def extraer_activaciones_cnn(modelo, img_tensor, dispositivo):
     """
-    Extrae las activaciones de conv1 y conv2 de un SimpleCNN.
+    Extrae las activaciones de conv1 y conv2 de un ConvNet.
     Devuelve (act_conv1, act_conv2) como arrays numpy.
     """
     modelo.eval()
@@ -619,8 +619,8 @@ torch.manual_seed(0)
 noise    = torch.randn_like(img_ejemplo) * sigma_demo
 img_noisy = (img_ejemplo + noise).clamp(0, 1)
 
-act1_clean, act2_clean = extraer_activaciones_cnn(simple_cnn, img_ejemplo, DEVICE)
-act1_noisy, act2_noisy = extraer_activaciones_cnn(simple_cnn, img_noisy,   DEVICE)
+act1_clean, act2_clean = extraer_activaciones_cnn(convnet, img_ejemplo, DEVICE)
+act1_noisy, act2_noisy = extraer_activaciones_cnn(convnet, img_noisy,   DEVICE)
 
 # Mostramos los 8 filtros más activos de conv1 en ambas condiciones
 n_filtros = 8
@@ -729,8 +729,8 @@ def similitud_activaciones(modelo, img_ref, sigmas, capa='conv1', device=DEVICE,
 
 # %%
 print("Calculando similitud de activaciones (20 rep. por σ)...")
-sims_c1 = similitud_activaciones(simple_cnn, img_ejemplo, sigmas_quant, capa='conv1')
-sims_c2 = similitud_activaciones(simple_cnn, img_ejemplo, sigmas_quant, capa='conv2')
+sims_c1 = similitud_activaciones(convnet, img_ejemplo, sigmas_quant, capa='conv1')
+sims_c2 = similitud_activaciones(convnet, img_ejemplo, sigmas_quant, capa='conv2')
 print("✅ Listo")
 
 fig, axes = plt.subplots(1, 2, figsize=(13, 5))

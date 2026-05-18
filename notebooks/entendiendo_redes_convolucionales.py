@@ -3348,6 +3348,79 @@ print(f"\n✅ La CNN supera al MLP en {mejora:.2f} puntos porcentuales")
 print(f"   con {params_mlp/params_cnn:.1f}x menos parámetros")
 
 # %%
+# Matriz de confusión de la NN
+
+modelo_mlp.eval()
+todas_pred = []
+todas_real = []
+
+with torch.no_grad():
+    for imgs, lbls in test_loader:
+        imgs = imgs.to(DEVICE)
+        out  = modelo_mlp(imgs)
+        _, pred = out.max(1)
+        todas_pred.extend(pred.cpu().numpy())
+        todas_real.extend(lbls.numpy())
+
+todas_pred = np.array(todas_pred)
+todas_real  = np.array(todas_real)
+cm = confusion_matrix(todas_real, todas_pred)
+
+fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+
+# ─── Matriz de confusión ───
+ax1 = axes[0]
+im  = ax1.imshow(cm, cmap='Blues')
+plt.colorbar(im, ax=ax1)
+for i in range(10):
+    for j in range(10):
+        color = 'white' if cm[i,j] > cm.max()*0.5 else 'black'
+        weight = 'bold' if i == j else 'normal'
+        ax1.text(j, i, str(cm[i,j]),
+                ha='center', va='center',
+                fontsize=9, color=color,
+                fontweight=weight)
+ax1.set_xlabel('Predicción', fontsize=11)
+ax1.set_ylabel('Etiqueta real', fontsize=11)
+ax1.set_xticks(range(10)); ax1.set_yticks(range(10))
+ax1.set_title('Matriz de confusión — MLP\n'
+              'Diagonal = aciertos | Fuera = errores',
+              fontweight='bold')
+
+# Precisión por clase
+ax2 = axes[1]
+precision_clase = cm.diagonal() / cm.sum(axis=1) * 100
+colores_barra = ['#2ecc71' if p >= 99 else
+                 '#f39c12' if p >= 97 else
+                 '#e74c3c' for p in precision_clase]
+bars = ax2.bar(range(10), precision_clase,
+               color=colores_barra, alpha=0.85)
+ax2.axhline(precision_clase.mean(), color='black',
+            ls='--', lw=1.5,
+            label=f'Media: {precision_clase.mean():.2f}%')
+ax2.set_xlabel('Dígito')
+ax2.set_ylabel('Precisión (%)')
+ax2.set_xticks(range(10))
+ax2.set_ylim(94, 101)
+ax2.set_title('Precisión por clase', fontweight='bold')
+ax2.legend()
+ax2.grid(axis='y', alpha=0.3)
+for bar, p in zip(bars, precision_clase):
+    ax2.text(bar.get_x() + bar.get_width()/2,
+             bar.get_height() + 0.05,
+             f'{p:.1f}%', ha='center',
+             fontsize=8, fontweight='bold')
+
+fig_save('confusion_matrix_mlp.png', fig_n.sig(),
+         f'Análisis de resultados de la CNN en MNIST — Precisión: {test_acc_cnn:.2f}%')
+plt.tight_layout()
+plt.show()
+
+print("\nReporte de clasificación:")
+print(classification_report(todas_real, todas_pred,
+                            target_names=[str(i) for i in range(10)]))
+
+# %%
 # Matriz de confusión de la CNN
 
 modelo_cnn.eval()
@@ -3411,7 +3484,7 @@ for bar, p in zip(bars, precision_clase):
              f'{p:.1f}%', ha='center',
              fontsize=8, fontweight='bold')
 
-fig_save('confusion_matrix.png', fig_n.sig(),
+fig_save('confusion_matrix_cnn.png', fig_n.sig(),
          f'Análisis de resultados de la CNN en MNIST — Precisión: {test_acc_cnn:.2f}%')
 plt.tight_layout()
 plt.show()

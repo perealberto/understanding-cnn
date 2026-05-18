@@ -223,9 +223,9 @@ class Trainer:
 # Models already implemented
 
 
-class SimpleNN(nn.Module):
+class FCNet(nn.Module):
     """
-    SimpleNN is a simple feedforward neural network implemented using PyTorch's `nn.Module`.
+    FCNet is a simple feedforward neural network implemented using PyTorch's `nn.Module`.
     This model is designed for image classification tasks, where the input images are expected
     to have a shape of (28, 28). The network consists of a flattening layer followed by a
     sequential stack of fully connected layers with ReLU activations.
@@ -263,9 +263,9 @@ class SimpleNN(nn.Module):
         return logits
 
 
-class SimpleCNN(nn.Module):
+class ConvNet(nn.Module):
     """
-    SimpleCNN is a convolutional neural network (CNN) model implemented using PyTorch's `nn.Module`.
+    ConvNet is a convolutional neural network (CNN) model implemented using PyTorch's `nn.Module`.
     It is designed for image classification tasks and includes methods to retrieve the activations
     and gradients of the last convolutional layer.
     Attributes:

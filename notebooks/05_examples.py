@@ -464,22 +464,22 @@ def visualize_mnist_forward(
 
 
 # +
-simple_CNN = models.SimpleCNN()
-if not (models_path / "simple_CNN.ckpt").exists():
+convnet = models.ConvNet()
+if not (models_path / "convnet.ckpt").exists():
     trainer = models.Trainer(
-        model=simple_CNN,
-        optimizer=optim.Adam(simple_CNN.parameters(), lr=1e-3),
+        model=convnet,
+        optimizer=optim.Adam(convnet.parameters(), lr=1e-3),
         loss_fn=nn.CrossEntropyLoss(),
         train_loader=train_dataloader,
         val_loader=val_dataloader,
         device=device,
-        save_name="simple_CNN",
+        save_name="convnet",
     )
     trainer.fit()
 else:
-    checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
-    simple_CNN.load_state_dict(checkpoint)
-    simple_CNN = simple_CNN.to(device).eval()
+    checkpoint = torch.load(models_path / "convnet.ckpt", map_location=device)
+    convnet.load_state_dict(checkpoint)
+    convnet = convnet.to(device).eval()
 
 batch, _ = next(iter(test_dataloader))
 x = batch[0].unsqueeze(0).to(device).requires_grad_(True)
@@ -489,7 +489,7 @@ noise = torch.randn_like(x) * sigma
 noisy = (x + noise.to(device)).clamp(0, 1)
 
 captures = visualize_mnist_forward(
-    model=simple_CNN, x=noisy, save_path=images_path / "simpleCNN_forward.png", cols=8, dpi=250
+    model=convnet, x=noisy, save_path=images_path / "convnet_forward.png", cols=8, dpi=250
 )
 # -
 tag, feats = captures[0]
@@ -865,6 +865,3 @@ ani_padding = animation.FuncAnimation(
 ani_padding.save('images/course/padding.gif', writer='pillow', fps=5)
 plt.close()
 IPImage('padding.gif')
-# -
-
-

@@ -40,15 +40,15 @@ test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
 
 
 # +
-simple_cnn = models.SimpleCNN()
-checkpoint = torch.load(models_path / "simple_CNN.ckpt", map_location=device)
-simple_cnn.load_state_dict(checkpoint)
-simple_cnn = simple_cnn.to(device).eval()
+convnet = models.ConvNet()
+checkpoint = torch.load(models_path / "convnet.ckpt", map_location=device)
+convnet.load_state_dict(checkpoint)
+convnet = convnet.to(device).eval()
 
 batch, _ = next(iter(test_dataloader))
 img = batch[6].unsqueeze(0).to(device)
 
-with grad.GradCAM(simple_cnn, device=device) as gc:
+with grad.GradCAM(convnet, device=device) as gc:
     cam = gc.generate(img)
 
 superimposed = grad.GradCAM.overlay_on_image(img, cam)
